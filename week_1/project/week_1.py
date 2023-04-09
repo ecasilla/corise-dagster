@@ -13,6 +13,7 @@ from dagster import (
     usable_as_dagster_type,
 )
 from pydantic import BaseModel
+from operator import attrgetter
 
 
 @usable_as_dagster_type(description="Stock data")
@@ -50,26 +51,30 @@ def csv_helper(file_name: str) -> Iterator[Stock]:
             yield Stock.from_list(row)
 
 
+@op(config_schema={"s3_key": String})
+def get_s3_data_op(context) -> List[Stock]:
+    return list(csv_helper(context.op_config["s3_key"]))
+
+
 @op
-def get_s3_data_op():
+def process_data_op(context, stocks) -> Aggregation:
+    highest_stock = max(stocks, key=attrgetter("high"))
+    return Aggregation(date=highest_stock.date, high=highest_stock.high)
+
+
+@op
+def put_redis_data_op(context, aggregation):
     pass
 
 
 @op
-def process_data_op():
-    pass
-
-
-@op
-def put_redis_data_op():
-    pass
-
-
-@op
-def put_s3_data_op():
+def put_s3_data_op(context, aggregation):
     pass
 
 
 @job
 def machine_learning_job():
-    pass
+    stocks = get_s3_data_op()
+    aggregation = process_data_op(stocks)
+    put_redis_data_op(aggregation)
+    put_s3_data_op(aggregation)
